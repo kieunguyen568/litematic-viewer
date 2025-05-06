@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1.0"/>
+    <title>Litematic Viewer - Minecraft Edition</title>
+
+    <!-- Deepslate -->
+    <script src="https://unpkg.com/deepslate@0.10.1"></script>
+    <script src="https://unpkg.com/gl-matrix@3.4.3/gl-matrix-min.js"></script>
+
+    <script src="resource/assets.js"></script>
+    <script src="resource/opaque.js"></script>
+
+    <!-- Materialize -->
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" media="screen,projection"/>
+
+    <!-- Icons -->
+    <script src="https://kit.fontawesome.com/92330e144e.js" crossorigin="anonymous"></script>
+
+    <!-- Minecraft Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --mc-font: 'Press Start 2P', cursive;
+            --mc-bg-dark: #373737;
+            --mc-bg-light: #C6C6C6;
+            --mc-border-dark: #2A2A2A;
+            --mc-border-light: #7B7B7B;
+            --mc-border-highlight: #FFFFFF;
+            --mc-text-light: #FFFFFF;
+            --mc-text-dark: #3A3A3A;
+            --mc-text-shadow: 1px 1px 0px #3A3A3A;
+            --mc-stone-texture: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABRSURBVDhPY2RgYPgPYwDXCMgMEMxgYGBgZABiEGVgZmBg+M/AwAQkGRgYGBgYGEDwGhoaGBgYWNQAIgReqgMQg3gZUJgA1IaJgYEBAMugC+0/q9+tAAAAAElFTkSuQmCC');
+            --mc-panel-bg: #2E2E2E;
+
+            /* Đường dẫn đến ảnh nền Minecraft của bạn trong thư mục media */
+        --minecraft-cave-bg: url('media/minecraft-travel-tips-01_.webp');
+        }
+
+        body {
+            font-family: var(--mc-font);
+            background-image: var(--minecraft-cave-bg);
+            background-color: #1E1E1E; /* Fallback color if image fails to load */
+            background-size: cover; /* Scale the image to cover the entire background */
+            background-position: center center; /* Center the image */
+            background-repeat: no-repeat; /* Do not repeat the image */
+            background-attachment: fixed; /* Keep the background fixed during scroll */
+            color: var(--mc-text-light);
+            image-rendering: pixelated; /* For Minecraft font and other pixel elements */
+            overflow: hidden; /* Prevent scrollbars from particles */
+            position: relative;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh; /* Ensure body takes full viewport height */
+        }
+
+        #pixel-particles-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1; /* Behind content, but above body's direct background */
+            pointer-events: none;
+            overflow: hidden;
+        }
+
+        .particle {
+            position: absolute;
+            background-color: white;
+            width: 3px;
+            height: 3px;
+            border-radius: 0;
+            opacity: 0;
+            animation: floatParticle 20s infinite linear;
+            /* Glow effect for particles to match the lights in the image */
+            box-shadow: 0 0 3px 1px rgba(255, 223, 100, 0.6); /* Soft yellow glow */
+        }
+
+        /* Particle colors - adjusted to better match the cave image */
+        .particle.glow-moss { background-color: #B8A338; box-shadow: 0 0 4px 2px #D4C850; } /* Glow lichen */
+        .particle.deepslate { background-color: #4A4A52; box-shadow: 0 0 2px 1px #303035; } /* Deepslate */
+        .particle.stone { background-color: #7F7F7F; box-shadow: 0 0 2px 1px #505050; }    /* Stone */
+        .particle.dripstone { background-color: #A07C5A; box-shadow: 0 0 2px 1px #785C40; } /* Dripstone */
+        .particle.spore { background-color: #90EE90; opacity: 0.5; box-shadow: 0 0 5px 2px #A0FFA0; } /* Spore Blossom particle - make it semi-transparent */
+
+
+        @keyframes floatParticle {
+            0% {
+                transform: translateY(100vh) translateX(var(--start-x)) scale(1);
+                opacity: 0;
+            }
+            5% { /* Appear a bit faster */
+                opacity: var(--particle-opacity, 0.7); /* Use CSS variable for opacity */
+            }
+            95% {
+                opacity: var(--particle-opacity, 0.7);
+            }
+            100% {
+                transform: translateY(-20px) translateX(var(--end-x)) scale(0.8);
+                opacity: 0;
+            }
+        }
+
+        /* General UI Styling - Kept from previous versions */
+        #viewer {
+            position:fixed;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0; /* Above particles and body bg, below UI elements */
+        }
+
+        .container {
+            background-color: rgba(30, 30, 30, 0.8); /* Darker, more opaque for readability on complex BG */
+            padding: 20px;
+            border: 3px solid var(--mc-border-dark);
+            box-shadow: inset 0 0 0 3px var(--mc-border-light), 0 0 10px rgba(0,0,0,0.7);
+            margin-bottom: 20px;
+            position: relative;
+            z-index: 1; /* Ensure containers are above #viewer and particles */
+        }
+
+        h3.header, h5.header {
+            font-family: var(--mc-font);
+            color: var(--mc-text-light);
+            text-shadow: 2px 2px 0px #2a2a2a; /* Slightly darker shadow for contrast */
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .btn, button, input[type="submit"], label[for="file-upload"] .btn {
+            font-family: var(--mc-font) !important;
+            background-color: var(--mc-bg-light) !important;
+            color: var(--mc-text-dark) !important;
+            border: 2px solid var(--mc-border-dark) !important;
+            border-bottom-color: var(--mc-border-highlight) !important;
+            border-right-color: var(--mc-border-highlight) !important;
+            box-shadow: inset 2px 2px 0px var(--mc-border-light), 2px 2px 0px var(--mc-border-dark) !important;
+            padding: 10px 15px !important;
+            text-shadow: 1px 1px 0px var(--mc-border-highlight) !important;
+            border-radius: 0 !important;
+            height: auto !important;
+            line-height: normal !important;
+            text-transform: none !important;
+            transition: none !important;
+        }
+        .btn:hover, button:hover, input[type="submit"]:hover, label[for="file-upload"] .btn:hover {
+            background-color: #D6D6D6 !important;
+            box-shadow: inset 2px 2px 0px var(--mc-border-light), 2px 2px 0px var(--mc-border-dark), 0 0 5px #FFF !important;
+        }
+        .btn:active, button:active, input[type="submit"]:active, label[for="file-upload"] .btn:active {
+            background-color: #B0B0B0 !important;
+            box-shadow: inset 2px 2px 0px var(--mc-border-dark) !important;
+            text-shadow: none !important;
+            transform: translate(1px, 1px);
+        }
+        .btn i, button i {
+             color: var(--mc-text-dark) !important;
+        }
+
+        #drop-zone {
+            display: block;
+            background-color: rgba(60, 60, 60, 0.7); /* Semi-transparent stone */
+            background-image: var(--mc-stone-texture);
+            border: 3px dashed var(--mc-border-light);
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            margin-bottom: 20px;
+        }
+        #drop-zone h3 {
+            font-family: var(--mc-font);
+            color: var(--mc-text-light);
+            text-shadow: var(--mc-text-shadow);
+            margin-top: 0;
+        }
+        #drop-zone:hover {
+            border-color: var(--mc-border-highlight);
+            background-color: rgba(80, 80, 80, 0.8);
+        }
+        #file-upload-btn {
+            font-size: 2rem !important;
+        }
+        #file-upload-btn i {
+            font-size: 2.5rem !important;
+            line-height: 50px !important;
+        }
+
+        .input-field input[type=text], .input-field input[type=url] {
+            font-family: var(--mc-font);
+            background-color: var(--mc-bg-dark);
+            border: 2px solid var(--mc-border-dark) !important;
+            box-shadow: inset 2px 2px 0px var(--mc-border-light) !important;
+            color: var(--mc-text-light) !important;
+            padding: 5px 10px !important;
+            border-radius: 0 !important;
+            height: auto !important;
+            box-sizing: border-box;
+        }
+        .input-field input[type=text]:focus, .input-field input[type=url]:focus {
+            border-bottom: 2px solid var(--mc-border-highlight) !important;
+            box-shadow: inset 2px 2px 0px var(--mc-border-light), 0 0 5px var(--mc-border-highlight) !important;
+        }
+        .input-field label {
+            font-family: var(--mc-font);
+            color: var(--mc-text-light) !important;
+            text-shadow: var(--mc-text-shadow);
+        }
+        .input-field label.active {
+            transform: translateY(-10px) scale(0.8) !important;
+            font-size: 0.9rem !important;
+        }
+
+        #settings-button {
+            position: fixed;
+            top: 15px;
+            right: 15px;
+            font-size: 24px;
+            z-index: 1001;
+            padding: 10px;
+        }
+         #settings-button i { color: var(--mc-text-light) !important; }
+
+        #settings-panel {
+            height: 100%;
+            width: 0;
+            position: fixed;
+            z-index: 1000;
+            top: 0;
+            right: 0;
+            background-color: var(--mc-panel-bg);
+            background-image: var(--mc-stone-texture);
+            border-left: 4px solid var(--mc-border-dark);
+            box-shadow: inset 2px 0 0 var(--mc-border-light);
+            overflow-x: hidden;
+            padding-top: 60px;
+            transition: 0.3s;
+            opacity: 0.95; /* Slightly transparent panel */
+        }
+        #settings-panel .closebtn {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            font-size: 30px;
+            margin-left: 50px;
+            color: var(--mc-text-light);
+            text-shadow: var(--mc-text-shadow);
+            padding: 5px;
+        }
+        #settings-panel .closebtn:hover {
+            color: #FF5252;
+        }
+        #settings-panel p, #settings-panel .settings-label, #settings-panel label {
+            color: var(--mc-text-light);
+            text-shadow: var(--mc-text-shadow);
+            padding-left: 15px;
+            font-size: 0.8rem;
+        }
+        #settings-panel .settings-section {
+            margin-bottom: 20px;
+            display: grid;
+            width: auto;
+            margin-left: 15px;
+            margin-right: 15px;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            grid-gap: 10px;
+        }
+         #settings-panel .btn { margin-left: 15px; margin-bottom: 10px;}
+
+        .switch label input[type=checkbox]:checked+.lever {
+            background-color: #5cb85c !important;
+        }
+        .switch label input[type=checkbox]:checked+.lever:after {
+            background-color: #4cae4c !important;
+            left: 24px;
+        }
+        .switch label .lever {
+            background-color: var(--mc-bg-dark) !important;
+            border: 1px solid var(--mc-border-dark);
+        }
+        .switch label .lever:after {
+            background-color: var(--mc-bg-light) !important;
+            border: 1px solid var(--mc-border-dark);
+            box-shadow: 1px 1px 0 var(--mc-border-light);
+        }
+
+        [type="radio"]:checked+span:after, [type="radio"].with-gap:checked+span:before, [type="radio"].with-gap:checked+span:after {
+            border: 2px solid #5cb85c !important;
+        }
+        [type="radio"]:checked+span:after, [type="radio"].with-gap:checked+span:after {
+            background-color: #5cb85c !important;
+        }
+        [type="radio"]+span:before, [type="radio"]+span:after {
+            border: 2px solid var(--mc-border-light) !important;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            background: var(--mc-bg-light) !important;
+            border: 1px solid var(--mc-border-dark) !important;
+            box-shadow: 1px 1px 0 var(--mc-border-light) !important;
+            height: 18px !important;
+            width: 10px !important;
+            border-radius: 0 !important;
+        }
+        input[type=range]::-moz-range-thumb {
+            background: var(--mc-bg-light) !important;
+            border: 1px solid var(--mc-border-dark) !important;
+            box-shadow: 1px 1px 0 var(--mc-border-light) !important;
+            height: 18px !important;
+            width: 10px !important;
+            border-radius: 0 !important;
+        }
+        input[type=range]::-ms-thumb {
+            background: var(--mc-bg-light) !important;
+            border: 1px solid var(--mc-border-dark) !important;
+            box-shadow: 1px 1px 0 var(--mc-border-light) !important;
+            height: 18px !important;
+            width: 10px !important;
+            border-radius: 0 !important;
+        }
+        input[type=range] {
+            border: 1px solid var(--mc-border-dark) !important;
+            background: var(--mc-bg-dark) !important;
+        }
+
+        #materialList {
+            position: fixed;
+            top: 60px;
+            left: 15px;
+            column-width: 180px;
+            max-height: calc(100vh - 80px);
+            background-color: rgba(46, 46, 46, 0.9);
+            background-image: var(--mc-stone-texture);
+            border: 3px solid var(--mc-border-dark);
+            box-shadow: inset 0 0 0 2px var(--mc-border-light);
+            padding: 10px;
+            overflow-y: auto;
+            z-index: 900;
+            font-size: 0.8rem;
+        }
+        #materialList .count-item {
+            display: grid;
+            background-color: var(--mc-bg-dark);
+            grid-template-columns: auto 1fr auto;
+            gap: 8px;
+            padding: 5px;
+            margin-bottom: 3px;
+            border: 1px solid var(--mc-border-light);
+            align-items: center;
+            color: var(--mc-text-light);
+        }
+        #materialList .count-item img {
+            width: 16px; height: 16px; image-rendering: pixelated;
+        }
+        #materialListButton {
+            position: fixed;
+            top: 15px;
+            left: 15px;
+            padding: 10px;
+            z-index: 950;
+        }
+
+        #sliders {
+            position: fixed;
+            top: 60px;
+            left: 15px;
+            bottom: 15px;
+            width: auto;
+            z-index: 800;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 10px;
+            background-color: rgba(46, 46, 46, 0.9);
+            border: 2px solid var(--mc-border-dark);
+        }
+        #sliders input[type="range"] {
+            writing-mode: vertical-lr;
+            direction: rtl;
+            appearance: slider-vertical;
+            width: 20px !important;
+            height: 150px !important;
+            padding: 0 5px !important;
+            background: var(--mc-bg-dark) !important;
+            border: 1px solid var(--mc-border-dark) !important;
+        }
+
+        .row .col p {
+            color: var(--mc-text-light);
+            text-shadow: var(--mc-text-shadow);
+        }
+
+        @media screen and (max-height: 450px) {
+          #settings-panel {padding-top: 15px;}
+          #settings-panel a {font-size: 18px;}
+        }
+
+        .waves-effect { display: none !important; }
+
+        /* Toast Styling */
+        .mc-toast {
+            font-family: var(--mc-font) !important;
+            background-color: var(--mc-bg-dark) !important;
+            color: var(--mc-text-light) !important;
+            border: 2px solid var(--mc-border-dark) !important;
+            box-shadow: inset 1px 1px 0 var(--mc-border-light), 1px 1px 0 var(--mc-border-dark) !important;
+            border-radius: 0 !important;
+            padding: 10px 15px !important;
+            text-align: center;
+        }
+        .mc-toast.red {
+            background-color: #c0392b !important; /* Darker red */
+            border-color: #7B241C !important;
+        }
+
+
+    </style>
+
+    <script src="src/deepslate-helpers.js"></script>
+    <script src="src/litematic-utils.js"></script>
+    <script src="src/main.js"></script>
+    <script src="src/settings.js"></script>
+    <script src="src/viewer.js"></script>
+
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-C0DVDW0WXS"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-C0DVDW0WXS');
+    </script>
+</head>
+
+<body>
+    <div id="pixel-particles-bg">
+        <!-- Các hạt sẽ được tạo bằng JavaScript -->
+    </div>
+
+    <div id="viewer" width="100%"></div>
+
+    <button id="materialListButton" class="btn mc-button" hidden><span class="material-icons">list</span></button>
+    <div id="materialList" hidden></div>
+    <div id="sliders" hidden></div>
+
+
+    <div id="main-content">
+        <div class="section no-pad-bot">
+            <div class="container">
+                <h3 class="header center">LITEMATIC VIEWER</h3>
+                <p class="center" style="font-size: 0.8em; margin-top: -15px; color: #ddd;">Edition by KieuNguyen</p>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="row">
+                <div class="col s12" id="file-loader-panel">
+                    <input id="file-upload" type="file" onchange="readFileInput(this)" hidden multiple />
+                
+                    <label for="file-upload" id="drop-zone" ondrop="dropHandler(event);" ondragover="dragOverHandler(event);">
+                        <div> 
+                            <h3>Tai len .litematic file(s) tai day!</h3>
+                            <p>or</p>
+                            <span id="file-upload-btn" class="btn btn-large mc-button"><i class="material-icons">add_circle_outline</i> Select File(s)</span>
+                        </div>
+                    </label>
+
+                    <h5 class="header light center" style="font-size: 1.2rem; margin-top:30px; margin-bottom:10px;">Or paste a .litematic link:</h5>
+                    <form onsubmit="event.preventDefault(); submitFileLink(document.getElementById('remote-url').value);">
+                        <div class="input-field">
+                            <input id="remote-url" type="url" name="remote-url" class="validate">
+                            <label for="remote-url">Litematic URL</label>
+                        </div>
+                         <button class="btn mc-button" type="submit" style="margin-top:10px;">Load from URL <i class="material-icons right">send</i></button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="container" style="font-size: 0.8rem; text-align: center;">
+             <div class="row">
+                <div class="col s12">
+                    <h5 class="header light" style="font-size:1rem;">
+                        Powered by <a href="https://github.com/misode/deepslate" target="_blank" rel="noopener">KieuNguyen <i class="fa fa-github fa-1x"></i></a>
+                    </h5>
+                    <p>Known issues: May not render all special blocks (Banner, Bed, Chest, etc.).</p>
+                    <p>
+                        <a href="https://discord.gg/GJckUsHsVB" target="_blank" rel="noopener">Complain on Discord <i class="fab fa-discord"></i></a> |
+                        <a href="https://github.com/kieunguyen568/" target="_blank" rel="noopener">by KieuNguyen <i class="fa fa-github"></i></a>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <img id="atlas" src="resource/atlas.png" alt="Texture atlas" crossorigin="anonymous" hidden>
+
+    <a href="javascript:void(0)" id="settings-button" class="openbtn mc-button" onclick="openSettings()"><i class="fa fa-cog"></i></a>
+
+        <!-- ... (phần code phía trên của #settings-panel) ... -->
+        <div id="settings-panel">
+         <a href="javascript:void(0)" class="closebtn" onclick="closeSettings()">×</a>
+ 
+         <button class="btn mc-button red" type="button" onclick="window.location.href = window.location.href.split('?')[0]; closeSettings();">Unload Schematic</button>
+ 
+         <p style="font-size: 1rem; margin-top: 20px; text-decoration: underline;">Controls</p>
+         
+         <!-- BẮT ĐẦU PHẦN THAY THẾ/CẬP NHẬT -->
+         <div class="settings-section">
+             <div class="col settings-label">
+                Click-drag to:
+             </div>
+             <div class="col">
+                <div>
+                   <label>
+                      <input name="click-drag" type="radio" class="with-gap setting" data-setting="click-drag" value="move" checked />
+                      <span class="reduced-padding">Move</span>
+                   </label>
+                   <label>
+                      <input name="click-drag" type="radio" class="with-gap setting" data-setting="click-drag" value="pan" />
+                      <span class="reduced-padding">Pan</span>
+                   </label>
+                </div>
+             </div>
+             <div class="col">
+                <div>
+                   <span class="switch">
+                      <label>
+                         <input type="checkbox" class="setting" data-setting="click-drag-invert" />
+                         <span class="lever"></span>
+                         Invert
+                      </label>
+                   </span>
+                </div>
+             </div>
+             <div class="col">
+                <span class="slider">
+                   <label class="setting-label">
+                      Sensitivity
+                      <p class="range-field" style="margin-top: 5px; margin-bottom:5px;">
+                         <input type="range" min="0" max="5" step="0.1" value="1" class="setting" data-setting="click-drag-sensitivity" />
+                      </p>
+                   </label>
+                </span>
+             </div>
+ 
+             <div class="col settings-label">
+                Middle-click-drag to:
+             </div>
+             <div class="col">
+                <div>
+                   <label>
+                      <input name="middle-click-drag" type="radio" class="with-gap setting" data-setting="middle-click-drag" value="move"/>
+                      <span class="reduced-padding">Move</span>
+                   </label>
+                   <label>
+                      <input name="middle-click-drag" type="radio" class="with-gap setting" data-setting="middle-click-drag" value="pan" checked/>
+                      <span class="reduced-padding">Pan</span>
+                   </label>
+                </div>
+             </div>
+             <div class="col">
+                <div>
+                   <span class="switch">
+                      <label>
+                         <input type="checkbox" class="setting" data-setting="middle-click-drag-invert" />
+                         <span class="lever"></span>
+                         Invert
+                      </label>
+                   </span>
+                </div>
+             </div>
+             <div class="col">
+                <span class="slider">
+                   <label class="setting-label">
+                      Sensitivity
+                      <p class="range-field" style="margin-top: 5px; margin-bottom:5px;">
+                         <input type="range" min="0" max="5" step="0.1" value="1" class="setting" data-setting="middle-click-drag-sensitivity" />
+                      </p>
+                   </label>
+                </span>
+             </div>
+ 
+             <div class="col" style="grid-column: span 4; text-align: center; margin-top:10px; font-style: italic;">
+                These do not work yet:
+             </div>
+ 
+             <div class="col settings-label">
+                Scroll to:
+             </div>
+             <div class="col">
+                <div>
+                   <label>
+                      <input name="scroll" type="radio" class="with-gap setting" data-setting="scroll" value="move" checked />
+                      <span class="reduced-padding">Move</span>
+                   </label>
+                   <label>
+                      <input name="scroll" type="radio" class="with-gap setting" data-setting="scroll" value="zoom" />
+                      <span class="reduced-padding">Zoom</span>
+                   </label>
+                </div>
+             </div>
+             <div class="col">
+                <div>
+                   <span class="switch">
+                      <label>
+                         <input type="checkbox" id="invert-move" class="setting" data-setting="scroll-invert-move" /> <!-- Giữ lại id="invert-move" nếu JS có sử dụng -->
+                         <span class="lever"></span>
+                         Invert
+                      </label>
+                   </span>
+                </div>
+             </div>
+             <div class="col">
+                <span class="slider">
+                   <label class="setting-label">
+                      Sensitivity
+                      <p class="range-field" style="margin-top: 5px; margin-bottom:5px;">
+                         <input type="range" min="0" max="5" step="0.1" value="1" class="setting" data-setting="scroll-sensitivity" />
+                      </p>
+                   </label>
+                </span>
+             </div>
+ 
+             <div class="col settings-label">
+                One finger touch drag to:
+             </div>
+             <div class="col">
+                <div>
+                   <label>
+                      <input name="touch-drag" type="radio" class="with-gap setting" data-setting="touch-drag" value="move"/>
+                      <span class="reduced-padding">Move</span>
+                   </label>
+                   <label>
+                      <input name="touch-drag" type="radio" class="with-gap setting" data-setting="touch-drag" value="pan" checked/>
+                      <span class="reduced-padding">Pan</span>
+                   </label>
+                </div>
+             </div>
+             <div class="col">
+                <div>
+                   <span class="switch">
+                      <label>
+                         <input type="checkbox" class="setting" data-setting="touch-drag-move-invert" />
+                         <span class="lever"></span>
+                         Invert
+                      </label>
+                   </span>
+                </div>
+             </div>
+             <div class="col">
+                <span class="slider">
+                   <label class="setting-label">
+                      Sensitivity
+                      <p class="range-field" style="margin-top: 5px; margin-bottom:5px;">
+                         <input type="range" min="0" max="5" step="0.1" value="1" class="setting" data-setting="touch-drag-sensitivity" />
+                      </p>
+                   </label>
+                </span>
+             </div>
+ 
+             <div class="col settings-label">
+                Two finger touch drag to:
+             </div>
+             <div class="col">
+                <div>
+                   <label>
+                      <input name="two-finger-drag" type="radio" class="with-gap setting" data-setting="two-finger-drag" value="move" checked/>
+                      <span class="reduced-padding">Move</span>
+                   </label>
+                   <label>
+                      <input name="two-finger-drag" type="radio" class="with-gap setting" data-setting="two-finger-drag" value="pan"/>
+                      <span class="reduced-padding">Pan</span>
+                   </label>
+                </div>
+             </div>
+             <div class="col">
+                <div>
+                   <span class="switch">
+                      <label>
+                         <input type="checkbox" class="setting" data-setting="gesture-move-invert" />
+                         <span class="lever"></span>
+                         Invert
+                      </label>
+                   </span>
+                </div>
+             </div>
+             <div class="col">
+                <span class="slider">
+                   <label class="setting-label">
+                      Sensitivity
+                      <p class="range-field" style="margin-top: 5px; margin-bottom:5px;">
+                         <input type="range" min="0" max="5" step="0.1" value="1" class="setting" data-setting="gesture-sensitivity" />
+                      </p>
+                   </label>
+                </span>
+             </div>
+ 
+             <div class="col settings-label">
+                Move with:
+             </div>
+             <div class="col"> <!-- Chứa các checkbox WASD, Arrow, Pinch -->
+                <div>
+                   <label>
+                      <input type="checkbox" name="wasd-move" class="filled-in setting" data-setting="wasd-move" checked/> <!-- Bỏ value="checked" không cần thiết với checkbox -->
+                      <span class="reduced-padding">WASD</span>
+                   </label>
+                </div>
+                <div>
+                   <label>
+                      <input type="checkbox" name="arrow-move" class="filled-in setting" data-setting="arrow-move"/>
+                      <span class="reduced-padding">Arrow Keys</span>
+                   </label>
+                </div>
+                <div>
+                   <label>
+                      <input type="checkbox" name="pinch-move" class="filled-in setting" data-setting="pinch-move" checked/>
+                      <span class="reduced-padding">Pinch</span>
+                   </label>
+                </div>
+             </div>
+             <div class="col" style="grid-column: span 2;"> <!-- Cho switch "Relative Forwards" -->
+                <div>
+                   <span class="switch">
+                      <label>
+                         <input type="checkbox" class="setting" data-setting="relative-forwards-movement"/>
+                         <span class="lever"></span>
+                         Make forwards movement relative to facing direction
+                      </label>
+                   </span>
+                </div>
+             </div>
+         </div>
+         <!-- KẾT THÚC PHẦN THAY THẾ/CẬP NHẬT -->
+ 
+         <button class="btn mc-button" onclick="resetSettings()">Reset Settings</button>
+     </div>
+     <!-- ... (phần code phía dưới của #settings-panel) ... -->
+
+    <script>
+        // Fallback for M.toast if Materialize JS is not fully loaded or used
+        if (typeof M === 'undefined') {
+            window.M = {
+                toast: function(options) {
+                    console.log('Toast:', options.html); // Log to console as a fallback
+                    alert(options.html);
+                }
+            };
+        } else {
+            // Initialize Materialize components if M exists
+            // M.AutoInit(); // Be cautious if you have many custom styles
+        }
+
+
+        function openSettings() {
+            document.getElementById("settings-panel").style.width = "350px"; 
+        }
+
+        function closeSettings() {
+            document.getElementById("settings-panel").style.width = "0";
+        }
+
+        document.addEventListener("DOMContentLoaded", function(event) {
+          console.log("DOM Loaded - MC Cave Edition");
+          const image = document.getElementById('atlas');
+          if (image.complete && image.naturalWidth !== 0) { 
+            console.log("Atlas image already complete.");
+            loadDeepslateResources(image);
+          } else {
+             console.log("Setting up atlas load listener.");
+             image.onload = () => { 
+                 console.log("Atlas image load event triggered.");
+                 loadDeepslateResources(image);
+             };
+             image.onerror = (error) => { 
+                console.error("Error loading atlas image:", error);
+             };
+          }
+
+           const urlParams = new URLSearchParams(window.location.search);
+           const remoteUrl = urlParams.get('remote-url');
+           if (remoteUrl) {
+              console.log("Loading file from URL Param:", remoteUrl);
+              readFileURL(remoteUrl);
+           }
+           
+           createParticles(); // Create particles after DOM is ready
+        });
+
+        function readFileInput(input) {
+           for (let i = 0; i < input.files.length; i++) {
+              let file = input.files[i];
+              console.log("Reading file input:", file.name);
+              loadAndProcessFile(file);
+           }
+           input.value = ''; 
+        }
+
+        function submitFileLink(url) {
+            if (url && url.trim() !== '') {
+                console.log("Submitting URL:", url);
+                readFileURL(url);
+            } else {
+                M.toast({html: 'Please enter a valid URL.', classes: 'mc-toast red'});
+            }
+        }
+
+        function readFileURL(url, useProxy=true) {
+           console.log("Attempting to load from URL:", url);
+            document.getElementById('main-content').style.display = 'none';
+            document.getElementById('sliders').hidden = false;
+            document.getElementById('materialListButton').hidden = false;
+
+
+           var proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+           var request = new XMLHttpRequest();
+           request.responseType = 'blob';
+           request.onreadystatechange = function () {
+              if (request.readyState == XMLHttpRequest.DONE) {
+                 if (request.status === 200) {
+                    console.log("Loaded file from remote url via proxy");
+                    loadAndProcessFile(request.response, url.substring(url.lastIndexOf('/') + 1));
+                 } else {
+                    console.error("Error loading litematic from URL. Status:", request.status, request.statusText);
+                    M.toast({html: 'Error loading from URL. Check console.', classes: 'mc-toast red'});
+                    document.getElementById('main-content').style.display = 'block';
+                    document.getElementById('sliders').hidden = true;
+                    document.getElementById('materialListButton').hidden = true;
+                    document.getElementById('materialList').hidden = true;
+                 }
+              }
+           };
+           request.open('GET', useProxy ? proxyUrl : url, true);
+           request.send();
+        }
+
+        function dragOverHandler(ev) {
+          ev.preventDefault();
+          ev.dataTransfer.dropEffect = "copy"; 
+          document.getElementById('drop-zone').style.borderColor = 'var(--mc-border-highlight)';
+        }
+        
+        document.getElementById('drop-zone').addEventListener('dragleave', (event) => {
+            document.getElementById('drop-zone').style.borderColor = 'var(--mc-border-light)';
+        });
+
+
+        function dropHandler(ev) {
+          console.log('File(s) dropped');
+          ev.preventDefault();
+          document.getElementById('drop-zone').style.borderColor = 'var(--mc-border-light)'; 
+
+          if (ev.dataTransfer.items) {
+            for (let i = 0; i < ev.dataTransfer.items.length; i++) {
+              if (ev.dataTransfer.items[i].kind === 'file') {
+                const file = ev.dataTransfer.items[i].getAsFile();
+                console.log('... processing dropped file: ' + file.name);
+                loadAndProcessFile(file);
+              }
+            }
+          } else {
+            for (let i = 0; i < ev.dataTransfer.files.length; i++) {
+              console.log('... processing dropped file (fallback): ' + ev.dataTransfer.files[i].name);
+              loadAndProcessFile(ev.dataTransfer.files[i]);
+            }
+          }
+        }
+        
+        // Script tạo hạt cho background động
+        function createParticles() {
+            const particlesContainer = document.getElementById('pixel-particles-bg');
+            if (!particlesContainer) return;
+
+            // Clear any existing particles if this function is called multiple times
+            particlesContainer.innerHTML = '';
+
+
+            const numberOfParticles = 70; // Increased for a lusher feel
+            const particleTypes = ['glow-moss', 'deepslate', 'stone', 'dripstone', 'spore'];
+
+            for (let i = 0; i < numberOfParticles; i++) {
+                const particle = document.createElement('div');
+                particle.classList.add('particle');
+
+                const randomType = particleTypes[Math.floor(Math.random() * particleTypes.length)];
+                particle.classList.add(randomType);
+
+                particle.style.setProperty('--start-x', Math.random() * 100 + 'vw');
+                const endXOffset = (Math.random() - 0.5) * 30; // Widen horizontal drift
+                particle.style.setProperty('--end-x', `calc(${Math.random() * 100}vw + ${endXOffset}vw)`);
+
+                const particleSize = Math.floor(Math.random() * 2) + 2; // 2 to 3 px
+                particle.style.width = particleSize + 'px';
+                particle.style.height = particleSize + 'px';
+                
+                // Set particle opacity based on type
+                if (randomType === 'spore') {
+                    particle.style.setProperty('--particle-opacity', (Math.random() * 0.3 + 0.2).toFixed(2)); // 0.2 to 0.5
+                } else if (randomType === 'glow-moss') {
+                    particle.style.setProperty('--particle-opacity', (Math.random() * 0.2 + 0.6).toFixed(2)); // 0.6 to 0.8
+                }
+                 else {
+                    particle.style.setProperty('--particle-opacity', (Math.random() * 0.3 + 0.4).toFixed(2)); // 0.4 to 0.7 for others
+                }
+
+
+                particle.style.animationDelay = Math.random() * 20 + 's';
+                particle.style.animationDuration = (Math.random() * 15 + 15) + 's'; // 15s to 30s
+
+                particlesContainer.appendChild(particle);
+            }
+        }
+
+    </script>
+    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script> -->
+</body>
+</html>
